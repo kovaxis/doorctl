@@ -16,7 +16,53 @@ const int CONF_ADDRESS = 0;
 const int OUT_PIN_COUNT = 2;
 const int IN_PIN_COUNT = 2;
 
-struct Conf {
+IPAddress build_ip(u8 *ip) {
+    return IPAddress(ip[0], ip[1], ip[2], ip[3]);
+}
+
+void show_bytestring(const u8 *str) {
+    for (int i = 0; i < SECRET_SIZE; i++) {
+        u8 tmp = str[i];
+        for (int j = 0; j < 2; j++) {
+            u8 val = tmp >> 4;
+            tmp <<= 4;
+            if (val < 10) Serial.print((char)((u8)'0' + val));
+            else Serial.print((char)((u8)'A' + val - 10));
+        }
+    }
+}
+
+void show_ints(int *ints, int len) {
+    for (int i = 0; i < len; i++) {
+        Serial.print(" ");
+        Serial.print(ints[i]);
+    }
+}
+
+#define SHOW_STRING(field)       \
+    Serial.print(#field ": \""); \
+    Serial.print(CONF.field);    \
+    Serial.println("\"");
+
+#define SHOW_IP(field)         \
+    Serial.print(#field ": "); \
+    Serial.println(build_ip(CONF.field));
+
+#define SHOW_BYTESTRING(field)   \
+    Serial.print(#field ": ");   \
+    show_bytestring(CONF.field); \
+    Serial.println();
+
+#define SHOW_INT(field)        \
+    Serial.print(#field ": "); \
+    Serial.println(CONF.field);
+
+#define SHOW_INTS(field)                                     \
+    Serial.print(#field ":");                                \
+    show_ints(CONF.field, sizeof(CONF.field) / sizeof(int)); \
+    Serial.println();
+
+struct __attribute__((__packed__)) Conf {
     char ap_ssid[MAX_SSID_LEN];
     char ap_password[MAX_SSID_LEN];
     u8 local_ip[4];
@@ -25,72 +71,41 @@ struct Conf {
     int server_port;
     u8 rng_state[SECRET_SIZE];
     u8 auth_secret[SECRET_SIZE];
-    u8 out_pins[OUT_PIN_COUNT];
-    u8 in_pins[IN_PIN_COUNT];
+    int out_pins[OUT_PIN_COUNT];
+    int in_pins[IN_PIN_COUNT];
+    int open_duration;
+    int on_threshold;
 };
 
 static Conf CONF;
 
-char parse_char() {
-    while (Serial.available() == 0) {}
+void show_conf() {
+    Serial.print(sizeof(Conf));
+    Serial.println(" bytes of conf:");
+    SHOW_STRING(ap_ssid);
+    SHOW_STRING(ap_password);
+    SHOW_IP(local_ip);
+    SHOW_IP(gateway_ip);
+    SHOW_IP(subnet_ip);
+    SHOW_INT(server_port);
+    SHOW_BYTESTRING(rng_state);
+    SHOW_BYTESTRING(auth_secret);
+    SHOW_INTS(out_pins);
+    SHOW_INTS(in_pins);
+    SHOW_INT(open_duration);
+    SHOW_INT(on_threshold);
+}
+
+char read_char() {
+    while (!Serial.available()) {}
     return Serial.read();
-}
-
-void expect_char(char ex) {
-    char c = parse_char();
-    if (c != ex) {
-        Serial.print("ERROR: expected character '");
-        Serial.print(ex);
-        Serial.print("', got '");
-        Serial.print(c);
-        Serial.println("'");
-        while (true) {}
-    }
-}
-
-void parse_string(char *buf, int cap) {
-    int i = 0;
-    while (i < cap - 1) {
-        char c = parse_char();
-        if (c == '\n') break;
-        buf[i++] = c;
-    }
-    buf[i] = 0;
-}
-
-int parse_int() {
-    int out = 0;
-    while (true) {
-        char c = parse_char();
-        if (c == '\n') break;
-        out *= 10;
-        out += (int)c - (int)'0';
-    }
-    return out;
-}
-
-void parse_ip(u8 *ip) {
-    for (int i = 0; i < 4; i++) {
-        u8 b = 0;
-        while (true) {
-            char c = parse_char();
-            if ((i < 3 && c == '.') || (i == 3 && c == '\n')) break;
-            if (c < '0' || c > '9') {
-                Serial.println("ERROR: invalid ip");
-                while (true) {}
-            }
-            b *= 10;
-            b += (u8)c - (u8)'0';
-        }
-        ip[i] = b;
-    }
 }
 
 void read_bytestring(u8 *str, int len) {
     for (int i = 0; i < len; i++) {
         u8 b = 0;
         for (int j = 0; j < 2;) {
-            char c = parse_char();
+            char c = read_char();
             u8 base;
             if ('0' <= c && c <= '9') base = '0';
             else if ('a' <= c && c <= 'f') base = (u8)'a' - 10;
@@ -101,83 +116,12 @@ void read_bytestring(u8 *str, int len) {
         }
         str[i] = b;
     }
-    while (parse_char() != '\n') {}
+    while (read_char() != '\n') {}
 }
 
-IPAddress build_ip(u8 *ip) {
-    return IPAddress(ip[0], ip[1], ip[2], ip[3]);
-}
-
-void show_secret(const u8 *secret) {
-    for (int i = 0; i < SECRET_SIZE; i++) {
-        u8 tmp = secret[i];
-        for (int j = 0; j < 2; j++) {
-            // Serial.print("tmp[");
-            // Serial.print(i);
-            // Serial.print("][");
-            // Serial.print(j);
-            // Serial.print("] = ");
-            // Serial.print(tmp);
-            // Serial.println();
-            u8 val = tmp >> 4;
-            tmp <<= 4;
-            if (val < 10) Serial.print((char)((u8)'0' + val));
-            else Serial.print((char)((u8)'A' + val - 10));
-        }
-    }
-}
-
-void setget_conf(bool set) {
-    if (set) Serial.println("Enter conf values (use newline, without carriage return)");
-
-    Serial.print("Wifi SSID: ");
-    if (set) parse_string(CONF.ap_ssid, sizeof(CONF.ap_ssid));
-    Serial.println(CONF.ap_ssid);
-
-    Serial.print("Wifi Password: ");
-    if (set) parse_string(CONF.ap_password, sizeof(CONF.ap_password));
-    Serial.println(CONF.ap_password);
-
-    Serial.print("Device IP: ");
-    if (set) parse_ip(CONF.local_ip);
-    Serial.println(build_ip(CONF.local_ip));
-
-    Serial.print("Gateway IP: ");
-    if (set) parse_ip(CONF.gateway_ip);
-    Serial.println(build_ip(CONF.gateway_ip));
-
-    Serial.print("Subnet mask: ");
-    if (set) parse_ip(CONF.subnet_ip);
-    Serial.println(build_ip(CONF.subnet_ip));
-
-    Serial.print("Server port: ");
-    if (set) CONF.server_port = parse_int();
-    Serial.println(CONF.server_port);
-
-    Serial.print("RNG seed state (32 bytes): ");
-    if (set) read_bytestring(CONF.rng_state, SECRET_SIZE);
-    show_secret(CONF.rng_state);
-    Serial.println();
-
-    Serial.print("Auth key (32 bytes): ");
-    if (set) read_bytestring(CONF.auth_secret, SECRET_SIZE);
-    show_secret(CONF.auth_secret);
-    Serial.println();
-
-    for (int i = 0; i < OUT_PIN_COUNT; i++) {
-        Serial.print("Out pin #");
-        Serial.print(i + 1);
-        Serial.print(": ");
-        if (set) CONF.out_pins[i] = parse_int();
-        Serial.println(CONF.out_pins[i]);
-    }
-    for (int i = 0; i < IN_PIN_COUNT; i++) {
-        Serial.print("In pin #");
-        Serial.print(i + 1);
-        Serial.print(": ");
-        if (set) CONF.in_pins[i] = parse_int();
-        Serial.println(CONF.in_pins[i]);
-    }
+void update_conf() {
+    Serial.println("enter conf hexstring:");
+    read_bytestring((u8 *)&CONF, sizeof(Conf));
 }
 
 void setupWifi() {
@@ -228,20 +172,24 @@ int read_client_bytes(WiFiClient *client, u8 *buf, int expect) {
 }
 
 u8 process_command(u8 cmd) {
-    if (cmd == 0) {
-        // Read state
-        byte out = 0;
-        for (int i = 0; i < IN_PIN_COUNT; i++) {
-            out |= digitalRead(CONF.in_pins[i]) << i;
-        }
-        return out;
-    } else if (cmd <= OUT_PIN_COUNT) {
+    if (cmd < OUT_PIN_COUNT) {
         // Open door
-        int i = cmd - 1;
-        digitalWrite(CONF.out_pins[i], HIGH);
-        delay(600);
-        digitalWrite(CONF.out_pins[i], LOW);
+        digitalWrite(CONF.out_pins[cmd], LOW);
+        delay(CONF.open_duration);
+        digitalWrite(CONF.out_pins[cmd], HIGH);
     }
+    // Read state
+    byte out = 0;
+    for (int i = 0; i < IN_PIN_COUNT; i++) {
+        int value = analogRead(CONF.in_pins[i]);
+        Serial.print("read value ");
+        Serial.print(value);
+        Serial.print(" for pin ");
+        Serial.println(CONF.in_pins[i]);
+        int is_on = value >= CONF.on_threshold;
+        out |= is_on << i;
+    }
+    return out;
 }
 
 WiFiServer server;
@@ -255,7 +203,7 @@ void setup() {
     delay(1500);
     if (Serial.available() && Serial.read() == 'C') {
         while (Serial.available()) Serial.read();
-        setget_conf(true);
+        update_conf();
         for (int i = 0; i < sizeof(Conf); i++) {
             EEPROM.write(CONF_ADDRESS + i, *(((u8 *)&CONF) + i));
         }
@@ -268,7 +216,15 @@ void setup() {
         Serial.println("config left as-is");
     }
     Serial.println("current config:");
-    setget_conf(false);
+    show_conf();
+
+    for (int i = 0; i < OUT_PIN_COUNT; i++) {
+        pinMode(CONF.out_pins[i], OUTPUT);
+        digitalWrite(CONF.out_pins[i], HIGH);
+    }
+    for (int i = 0; i < IN_PIN_COUNT; i++) {
+        pinMode(CONF.in_pins[i], INPUT);
+    }
 
     setupWifi();
     server.begin(CONF.server_port);
