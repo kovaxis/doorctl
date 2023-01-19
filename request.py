@@ -25,7 +25,9 @@ with socket() as rawsock:
         sock.send(auth)
 
         def send(fmt, *args):
-            sock.send(struct.pack("<"+fmt, *args))
+            raw = struct.pack("<"+fmt, *args)
+            print(f"sending {len(raw)} bytes in format {fmt}")
+            sock.send(raw)
 
         def recv(fmt, cnt):
             print(f"receiving {cnt} bytes to parse into {fmt}")

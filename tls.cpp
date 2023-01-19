@@ -121,8 +121,12 @@ void TlsClient::finish() {
     if (sock >= 0) close(sock), sock = -1;
 }
 
+static bool has_tls_data_available(int sock, SSL *ssl) {
+    return has_data_available(sock) || SSL_pending(ssl);
+}
+
 size_t TlsClient::read(u8 *buf, size_t cap) {
-    if (!has_data_available(sock)) return 0;
+    if (!has_tls_data_available(sock, ssl)) return 0;
     int len = SSL_read(ssl, buf, cap);
     if (len <= 0) {
         connected = false;
