@@ -1,17 +1,19 @@
 
 #include "EEPROM.h"
 #include "WiFi.h"
-#include "esp_system.h"
-#include "mbedtls/md.h"
 #include <stdint.h>
 #include <string.h>
+#include <string>
 
-typedef uint8_t u8;
-typedef uint32_t u32;
+#include "tls.hpp"
+#include "util.hpp"
 
-const int RECV_BUF_LEN = 128;
-// The size of a hash digest
-const int SECRET_SIZE = 256 / 8;
+SSLCert certificate = SSLCert(
+    crt_DER, crt_DER_len,
+    key_DER, key_DER_len, );
+
+HTTPSServer secure_server = HTTPSServer(&certificate);
+
 const int CONF_ADDRESS = 0;
 const int OUT_PIN_COUNT = 2;
 const int IN_PIN_COUNT = 2;
@@ -143,34 +145,6 @@ void setupWifi() {
     Serial.println(WiFi.localIP());
 }
 
-mbedtls_md_context_t hash_md_context;
-mbedtls_md_type_t hash_md_type = MBEDTLS_MD_SHA256;
-u8 hash_result[32];
-void hash_begin() {
-    mbedtls_md_init(&hash_md_context);
-    mbedtls_md_setup(&hash_md_context, mbedtls_md_info_from_type(hash_md_type), 0);
-    mbedtls_md_starts(&hash_md_context);
-}
-void hash_ingest(const unsigned char *payload, size_t len) {
-    mbedtls_md_update(&hash_md_context, payload, len);
-}
-void hash_finish() {
-    mbedtls_md_finish(&hash_md_context, hash_result);
-    mbedtls_md_free(&hash_md_context);
-}
-
-int read_client_bytes(WiFiClient *client, u8 *buf, int expect) {
-    int cur = 0;
-    while (client->connected()) {
-        if (client->available()) {
-            int len = client->read(buf + cur, expect - cur);
-            cur += len;
-            if (cur == expect) break;
-        }
-    }
-    return cur;
-}
-
 u8 process_command(u8 cmd) {
     if (cmd < OUT_PIN_COUNT) {
         // Open door
@@ -192,7 +166,12 @@ u8 process_command(u8 cmd) {
     return out;
 }
 
-WiFiServer server;
+void handle_get(HTTPRequest *req, HTTPResponse *res) {
+    std::string bearer = req->getHeader("Authorization");
+}
+
+void handle_post(HTTPRequest *req, HTTPResponse *res) {
+}
 
 void setup() {
     EEPROM.begin(sizeof(Conf));
@@ -227,85 +206,16 @@ void setup() {
     }
 
     setupWifi();
-    server.begin(CONF.server_port);
-    while (true) {
-        Serial.println("listening for clients...");
-        WiFiClient client;
-        while (!client) client = server.available();
 
-        Serial.print("connected to client ");
-        Serial.print(client.remoteIP());
-        Serial.print(":");
-        Serial.println(client.remotePort());
+    secure_server.registerNode(new ResourceNode("/", "GET", &handle_get));
+    secure_server.registerNode(new ResourceNode("/", "POST", &handle_post));
 
-        // Generate challenge
-        {
-            hash_begin();
-            u32 entropy1 = esp_random();
-            unsigned long entropy2 = micros();
-            hash_ingest((u8 *)&entropy1, sizeof(entropy1));
-            hash_ingest((u8 *)&entropy2, sizeof(entropy2));
-            hash_ingest(CONF.rng_state, SECRET_SIZE);
-            hash_finish();
-            memcpy(CONF.rng_state, hash_result, SECRET_SIZE);
-            Serial.print("using random entropy ");
-            Serial.print(entropy1);
-            Serial.print(" and ");
-            Serial.println(entropy2);
-        }
-
-        // Send challenge
-        client.write(CONF.rng_state, SECRET_SIZE);
-
-        // Read message
-        u8 recvbuf[SECRET_SIZE * 2];
-        int recvlen = read_client_bytes(&client, recvbuf, SECRET_SIZE * 2);
-
-        // Build the expected public key
-        hash_begin();
-        hash_ingest(CONF.rng_state, SECRET_SIZE);
-        hash_ingest(CONF.auth_secret, SECRET_SIZE);
-        hash_finish();
-
-        // Authorize message
-        bool auth = recvlen == SECRET_SIZE * 2 && memcmp(recvbuf, hash_result, SECRET_SIZE) == 0;
-        if (!auth) {
-            client.stop();
-            Serial.println("unauthorized request");
-            continue;
-        }
-
-        // Check the type of command
-        u8 cmd = 255;
-        for (u8 i = 0; i < 4; i++) {
-            const u8 PARAM_CODE = 250;
-            hash_begin();
-            hash_ingest(&PARAM_CODE, 1);
-            hash_ingest(&i, 1);
-            hash_ingest(CONF.rng_state, SECRET_SIZE);
-            hash_ingest(CONF.auth_secret, SECRET_SIZE);
-            hash_finish();
-            if (memcmp(recvbuf + SECRET_SIZE, hash_result, SECRET_SIZE) == 0) {
-                cmd = i;
-            }
-        }
-
-        // Process command
-        u8 result = process_command(cmd);
-
-        // Return result to client
-        const u8 RESULT_CODE = 251;
-        hash_begin();
-        hash_ingest(&RESULT_CODE, 1);
-        hash_ingest(&result, 1);
-        hash_ingest(CONF.rng_state, SECRET_SIZE);
-        hash_ingest(CONF.auth_secret, SECRET_SIZE);
-        hash_finish();
-        client.write(hash_result, SECRET_SIZE);
-
-        // End connection with client
-        client.stop();
-    }
+    Serial.println("starting server...");
+    secure_sever.start();
+    while (!secure_sever.isRunning()) {}
+    Serial.println("server started");
 }
 
-void loop() {}
+void loop() {
+    secure_server.loop();
+}
