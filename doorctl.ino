@@ -107,7 +107,6 @@ void show_conf() {
     SHOW_BYTESTRING(auth_token);
     SHOW_INTS(out_pins);
     SHOW_INTS(in_pins);
-    SHOW_INT(open_duration);
     SHOW_INT(on_threshold);
 }
 
@@ -169,9 +168,9 @@ void process_command(u32 cmd, TlsClient *data) {
     if (cmd == CMD_OPEN_DOOR) {
         // Set a pin to low for a while
         u8 door_idx;
-        data.read_exact(&door_idx, 1);
+        data->read_exact(&door_idx, 1);
         u16 open_time;
-        data.read_exact(&open_time, 2);
+        data->read_exact((u8 *)&open_time, 2);
         Serial.print("  opening door ");
         Serial.print(door_idx);
         Serial.print(" for ");
@@ -185,18 +184,18 @@ void process_command(u32 cmd, TlsClient *data) {
     } else if (cmd == CMD_READ_VALUES) {
         // Read input pin state
         Serial.println("  reading out pin levels");
-        out->write_all((const u8 *)&OUT_PIN_COUNT, sizeof(OUT_PIN_COUNT));
+        data->write_all((const u8 *)&OUT_PIN_COUNT, sizeof(OUT_PIN_COUNT));
         for (int i = 0; i < IN_PIN_COUNT; i++) {
             int value = analogRead(CONF.in_pins[i]);
-            out->write_all((const u8 *)&value, sizeof(value));
+            data->write_all((const u8 *)&value, sizeof(value));
         }
     } else if (cmd == CMD_SET_CONF) {
         // Update conf struct
         Serial.println("  updating conf");
         int conf_size = sizeof(Conf);
-        out->write_all((const u8 *)&conf_size, sizeof(int));
+        data->write_all((const u8 *)&conf_size, sizeof(int));
         Conf tmp;
-        if (out->read_exact((u8 *)&tmp, sizeof(Conf))) {
+        if (data->read_exact((u8 *)&tmp, sizeof(Conf))) {
             memcpy(&CONF, &tmp, sizeof(Conf));
             Serial.println("  successfully updated conf");
             save_conf_to_eeprom();
@@ -206,8 +205,8 @@ void process_command(u32 cmd, TlsClient *data) {
         // Read conf struct
         Serial.println("  reading conf");
         int conf_size = sizeof(Conf);
-        out->write_all((const u8 *)&conf_size, sizeof(int));
-        out->write_all((const u8 *)&CONF, sizeof(Conf));
+        data->write_all((const u8 *)&conf_size, sizeof(int));
+        data->write_all((const u8 *)&CONF, sizeof(Conf));
     } else {
         Serial.println("  unknown command");
     }

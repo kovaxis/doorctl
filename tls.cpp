@@ -10,6 +10,11 @@ TlsServer::TlsServer(TlsCert cert, int port, in_addr_t bind_addr, int max_conns)
         sock = -1;
     }
 
+    int timeout = 5;
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout, sizeof(timeout)) < 0) {
+        Serial.println("setsockopt (timeout) failed");
+    }
+
     sock_addr.sin_family = AF_INET;
     sock_addr.sin_port = htons(port);
     sock_addr.sin_addr.s_addr = bind_addr;
