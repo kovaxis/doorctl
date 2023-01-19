@@ -1,3 +1,5 @@
+#include "tls.hpp"
+#include "util.hpp"
 
 #include "EEPROM.h"
 #include "WiFi.h"
@@ -5,21 +7,34 @@
 #include <string.h>
 #include <string>
 
-#include "tls.hpp"
-#include "util.hpp"
-
-SSLCert certificate = SSLCert(
-    crt_DER, crt_DER_len,
-    key_DER, key_DER_len, );
-
-HTTPSServer secure_server = HTTPSServer(&certificate);
+#include "cert/cert.h"
+#include "cert/private_key.h"
 
 const int CONF_ADDRESS = 0;
 const int OUT_PIN_COUNT = 2;
 const int IN_PIN_COUNT = 2;
+const int SECRET_SIZE = 32;
+
+const u32 CMD_OPEN_DOOR = 1;
+const u32 CMD_READ_VALUES = 2;
+const u32 CMD_SET_CONF = 3;
+const u32 CMD_GET_CONF = 4;
 
 IPAddress build_ip(u8 *ip) {
     return IPAddress(ip[0], ip[1], ip[2], ip[3]);
+}
+
+void show_sockaddr(sockaddr_in &addr) {
+    u8 *ip = (u8 *)&addr.sin_addr;
+    Serial.print(ip[0]);
+    Serial.print('.');
+    Serial.print(ip[1]);
+    Serial.print('.');
+    Serial.print(ip[2]);
+    Serial.print('.');
+    Serial.print(ip[3]);
+    Serial.print(':');
+    Serial.print(addr.sin_port);
 }
 
 void show_bytestring(const u8 *str) {
@@ -71,11 +86,10 @@ struct __attribute__((__packed__)) Conf {
     u8 gateway_ip[4];
     u8 subnet_ip[4];
     int server_port;
-    u8 rng_state[SECRET_SIZE];
-    u8 auth_secret[SECRET_SIZE];
+    u8 auth_token[SECRET_SIZE];
     int out_pins[OUT_PIN_COUNT];
     int in_pins[IN_PIN_COUNT];
-    int open_duration;
+    int repeat_pins[IN_PIN_COUNT];
     int on_threshold;
 };
 
@@ -90,8 +104,7 @@ void show_conf() {
     SHOW_IP(gateway_ip);
     SHOW_IP(subnet_ip);
     SHOW_INT(server_port);
-    SHOW_BYTESTRING(rng_state);
-    SHOW_BYTESTRING(auth_secret);
+    SHOW_BYTESTRING(auth_token);
     SHOW_INTS(out_pins);
     SHOW_INTS(in_pins);
     SHOW_INT(open_duration);
@@ -121,9 +134,16 @@ void read_bytestring(u8 *str, int len) {
     while (read_char() != '\n') {}
 }
 
-void update_conf() {
+void update_conf_from_serial() {
     Serial.println("enter conf hexstring:");
     read_bytestring((u8 *)&CONF, sizeof(Conf));
+}
+
+void save_conf_to_eeprom() {
+    for (int i = 0; i < sizeof(Conf); i++) {
+        EEPROM.write(CONF_ADDRESS + i, *(((u8 *)&CONF) + i));
+    }
+    EEPROM.commit();
 }
 
 void setupWifi() {
@@ -145,32 +165,52 @@ void setupWifi() {
     Serial.println(WiFi.localIP());
 }
 
-u8 process_command(u8 cmd) {
-    if (cmd < OUT_PIN_COUNT) {
-        // Open door
-        digitalWrite(CONF.out_pins[cmd], LOW);
-        delay(CONF.open_duration);
-        digitalWrite(CONF.out_pins[cmd], HIGH);
+void process_command(u32 cmd, TlsClient *data) {
+    if (cmd == CMD_OPEN_DOOR) {
+        // Set a pin to low for a while
+        u8 door_idx;
+        data.read_exact(&door_idx, 1);
+        u16 open_time;
+        data.read_exact(&open_time, 2);
+        Serial.print("  opening door ");
+        Serial.print(door_idx);
+        Serial.print(" for ");
+        Serial.print(open_time);
+        Serial.println("ms");
+        if (door_idx < OUT_PIN_COUNT) {
+            digitalWrite(CONF.out_pins[cmd], LOW);
+            delay(open_time);
+            digitalWrite(CONF.out_pins[cmd], HIGH);
+        }
+    } else if (cmd == CMD_READ_VALUES) {
+        // Read input pin state
+        Serial.println("  reading out pin levels");
+        out->write_all((const u8 *)&OUT_PIN_COUNT, sizeof(OUT_PIN_COUNT));
+        for (int i = 0; i < IN_PIN_COUNT; i++) {
+            int value = analogRead(CONF.in_pins[i]);
+            out->write_all((const u8 *)&value, sizeof(value));
+        }
+    } else if (cmd == CMD_SET_CONF) {
+        // Update conf struct
+        Serial.println("  updating conf");
+        int conf_size = sizeof(Conf);
+        out->write_all((const u8 *)&conf_size, sizeof(int));
+        Conf tmp;
+        if (out->read_exact((u8 *)&tmp, sizeof(Conf))) {
+            memcpy(&CONF, &tmp, sizeof(Conf));
+            Serial.println("  successfully updated conf");
+            save_conf_to_eeprom();
+            Serial.println("  updated conf in EEPROM");
+        }
+    } else if (cmd == CMD_GET_CONF) {
+        // Read conf struct
+        Serial.println("  reading conf");
+        int conf_size = sizeof(Conf);
+        out->write_all((const u8 *)&conf_size, sizeof(int));
+        out->write_all((const u8 *)&CONF, sizeof(Conf));
+    } else {
+        Serial.println("  unknown command");
     }
-    // Read state
-    byte out = 0;
-    for (int i = 0; i < IN_PIN_COUNT; i++) {
-        int value = analogRead(CONF.in_pins[i]);
-        Serial.print("read value ");
-        Serial.print(value);
-        Serial.print(" for pin ");
-        Serial.println(CONF.in_pins[i]);
-        int is_on = value >= CONF.on_threshold;
-        out |= is_on << i;
-    }
-    return out;
-}
-
-void handle_get(HTTPRequest *req, HTTPResponse *res) {
-    std::string bearer = req->getHeader("Authorization");
-}
-
-void handle_post(HTTPRequest *req, HTTPResponse *res) {
 }
 
 void setup() {
@@ -182,11 +222,8 @@ void setup() {
     delay(1500);
     if (Serial.available() && Serial.read() == 'C') {
         while (Serial.available()) Serial.read();
-        update_conf();
-        for (int i = 0; i < sizeof(Conf); i++) {
-            EEPROM.write(CONF_ADDRESS + i, *(((u8 *)&CONF) + i));
-        }
-        EEPROM.commit();
+        update_conf_from_serial();
+        save_conf_to_eeprom();
         Serial.println("config updated");
     } else {
         for (int i = 0; i < sizeof(Conf); i++) {
@@ -207,15 +244,44 @@ void setup() {
 
     setupWifi();
 
-    secure_server.registerNode(new ResourceNode("/", "GET", &handle_get));
-    secure_server.registerNode(new ResourceNode("/", "POST", &handle_post));
-
     Serial.println("starting server...");
-    secure_sever.start();
-    while (!secure_sever.isRunning()) {}
+    TlsCert cert(example_key_DER, example_key_DER_len, example_crt_DER, example_crt_DER_len);
+    TlsServer server(cert, CONF.server_port);
     Serial.println("server started");
+
+    while (true) {
+        Serial.println("accepting clients...");
+        TlsClient client = server.accept_client();
+
+        if (!client.connected) continue;
+
+        Serial.print("connection from client ");
+        show_sockaddr(client.sock_addr);
+        Serial.println();
+
+        u8 token[SECRET_SIZE];
+        if (!client.read_exact(token, SECRET_SIZE)) {
+            client.write_str("token not supplied");
+            continue;
+        }
+
+        Serial.print("client supplied token ");
+        show_bytestring(token);
+        Serial.println();
+
+        if (memcmp(token, CONF.auth_token, SECRET_SIZE) != 0) {
+            client.write_str("unauthorized token");
+            continue;
+        }
+
+        u32 cmd;
+        while (client.read_exact((u8 *)&cmd, 4)) {
+            Serial.print("processing command ");
+            Serial.println(cmd);
+            process_command(cmd, &client);
+        }
+    }
 }
 
 void loop() {
-    secure_server.loop();
 }

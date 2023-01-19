@@ -1,51 +1,26 @@
 #!/usr/bin/env python3
 
 from socket import socket
-from hashlib import sha256
+import ssl
 import json
+import struct
+import sys
 
 with open("conf.json", 'r') as file:
     conf = json.load(file)
 
 auth = bytes.fromhex(conf['auth'])
-cmd = int(input("cmd: "))
+cmd = int(sys.argv[1])
 
-PARAM_CODE = 250
-RESULT_CODE = 251
+sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+sslctx.check_hostname = False
+sslctx.verify_mode = ssl.CERT_NONE  # TODO: Verify
 
-print("connecting")
-s = socket()
-s.connect((conf['host'], conf['port']))
-print("connected")
-
-challenge = s.recv(32)
-print(f"received challenge '{challenge.hex()}'")
-
-solved = sha256()
-solved.update(challenge)
-solved.update(auth)
-s.send(solved.digest())
-print(f"sent solved challenge '{solved.digest().hex()}'")
-
-cmdhash = sha256()
-cmdhash.update(bytes([PARAM_CODE]))
-cmdhash.update(bytes([cmd]))
-cmdhash.update(challenge)
-cmdhash.update(auth)
-s.send(cmdhash.digest())
-print(f"sent command '{cmdhash.digest().hex()}'")
-
-reshash = s.recv(32)
-print(f"received response '{reshash.hex()}'")
-
-res = None
-for maybe_res in range(256):
-    mres = sha256()
-    mres.update(bytes([RESULT_CODE]))
-    mres.update(bytes([maybe_res]))
-    mres.update(challenge)
-    mres.update(auth)
-    if mres.digest() == reshash:
-        res = maybe_res
-
-print(f"response: {res}")
+with socket() as rawsock:
+    with sslctx.wrap_socket(rawsock) as sock:
+        sock.connect((conf['host'], conf['port']))
+        sock.send(auth)
+        sock.send(struct.pack("<I", cmd))
+        buf = sock.recv()
+        levels = struct.unpack("<2i", buf)
+        print("levels:", *levels)
