@@ -32,9 +32,10 @@ struct TlsClient {
 
     TlsClient();
     ~TlsClient();
+    void finish();
 
     size_t read(u8 *buf, size_t cap);
-    bool write(const u8 *buf, size_t cap);
+    size_t write(const u8 *buf, size_t cap);
 
     bool read_exact(u8 *buf, size_t len);
     bool write_all(const u8 *buf, size_t len);
@@ -52,7 +53,7 @@ struct TlsServer {
 
     TlsServer(TlsCert cert, int port, in_addr_t bind_addr = 0, int max_conns = 1);
     ~TlsServer();
-    TlsClient accept_client();
+    bool try_accept(TlsClient *out);
 };
 
 #endif
