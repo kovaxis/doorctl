@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Control Portón</title>
+    <script>
+        let googleToken = null
+
+        function setButtonStatus(doorId, status) {
+            const enable = ({
+                'unauthorized': false,
+                'ready': true,
+                'active': false,
+            })[status]
+            const text = ({
+                'unauthorized': "Abrir",
+                'ready': "Abrir",
+                'active': "Abriendo...",
+            })[status]
+            document.getElementById("doorbtn-" + doorId).disabled = !enable
+            document.getElementById("doorbtn-" + doorId).innerText = text
+        }
+
+        function setDoorStatus(doorId, status) {
+            const text = ({
+                'unauthorized': "-",
+                'unknown': "Sin conexión",
+                'open': "Abierta",
+                'closed': "Cerrada",
+            })[status]
+            const color = ({
+                'unauthorized': "lightgray",
+                'unknown': "lightgray",
+                'open': "lightcoral",
+                'closed': "lightgreen",
+            })[status]
+            document.getElementById("status-" + doorId).innerText = text
+            document.getElementById("status-" + doorId).style.backgroundColor = color
+        }
+
+        function decodeJwt(token) {
+            var base64Url = token.split('.')[1]
+            var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+            var jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function (c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+            }).join(''))
+
+            return JSON.parse(jsonPayload)
+        }
+
+        socketRetryTimeout = 1
+        function openStatusConnection() {
+            // Establish websocket connection
+            const loc = window.location
+            let wsUri = ""
+            if (loc.protocol === "https:") {
+                wsUri = "wss:"
+            } else {
+                wsUri = "ws:"
+            }
+            wsUri += "//" + loc.host
+            wsUri += loc.pathname + "status?token=" + googleToken
+            console.log("opening websocket connection to", wsUri)
+            const ws = new WebSocket(wsUri)
+
+            ws.addEventListener('message', (msg) => onStatusMessage(JSON.parse(msg.data)))
+            ws.addEventListener('close', (ev) => onStatusClose(ev))
+        }
+
+        function onStatusMessage(status) {
+            console.log("received websocket update:", status)
+            socketRetryTimeout = 1
+            if (status == null) {
+                // Unknown status
+                for (let i = 0; i < 2; i++) {
+                    setDoorStatus(i, 'unknown')
+                }
+            } else {
+                // Known door-open status
+                for (let i = 0; i < 2; i++) {
+                    setDoorStatus(i, (status[i] ? 'open' : 'closed'))
+                }
+            }
+        }
+
+        function onStatusClose(err) {
+            console.error("status websocket connection closed:", err)
+
+            // Unknown door status (connection closed)
+            for (let i = 0; i < 2; i++) {
+                setDoorStatus(i, 'unknown')
+            }
+
+            // Retry the connection in some time
+            console.log("retrying websocket connection in " + socketRetryTimeout + " seconds...")
+            setTimeout(openStatusConnection, socketRetryTimeout * 1000)
+            socketRetryTimeout *= 2
+            if (socketRetryTimeout > 10) socketRetryTimeout = 10
+        }
+
+        function onGoogleSignIn(googleUser) {
+            console.log("google sign-in")
+            console.log("  id token:", googleUser.credential)
+            const token = decodeJwt(googleUser.credential)
+            console.log("  token payload:", token)
+            document.getElementById("sign-in-button").hidden = true
+            document.getElementById("signed-in-email").innerText = token.email
+            document.getElementById("signed-in").hidden = false
+            googleToken = googleUser.credential
+            for (let i = 0; i < 2; i++) {
+                setButtonStatus(i, 'ready')
+                setDoorStatus(i, 'unknown')
+            }
+            openStatusConnection()
+        }
+
+        async function openDoor(doorId) {
+            setButtonStatus(doorId, 'active')
+            let response = null
+            try {
+                response = await fetch(`/open?door=${doorId}`, {
+                    headers: {
+                        'Authorization': 'Bearer ' + googleToken,
+                    }
+                })
+            } catch (e) {
+                console.error(e)
+            }
+            if (response != null && response.status >= 200 && response.status < 300) {
+                console.log("door opened")
+                console.log(await response.json())
+            } else {
+                if (response != null) {
+                    console.error("open-door request failed:", response.status, response.statusText)
+                }
+                alert("No se pudo abrir la puerta, intente de nuevo")
+            }
+            setButtonStatus(doorId, 'ready')
+        }
+
+        function onLoad() {
+            for (let i = 0; i < 2; i++) {
+                setButtonStatus(i, 'unauthorized')
+                setDoorStatus(i, 'unauthorized')
+            }
+        }
+
+        window.addEventListener('load', onLoad)
+    </script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .page-title {
+            font-size: min(6vw, 6vh);
+            margin: 0px;
+            margin-top: 10vh;
+        }
+
+        .panel {
+            border: 2px solid black;
+            border-radius: 1em;
+            margin-top: 2em;
+            margin-bottom: 2em;
+            padding: 2em;
+
+            display: flex;
+            flex-direction: row;
+            gap: 4em;
+        }
+
+        .subpanel {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            text-align: center;
+            gap: 1em;
+        }
+
+        .subpanel-title {
+            font-size: min(4vw, 4vh);
+            margin: 0px;
+        }
+
+        .status {
+            font-size: min(3vw, 3vh);
+            margin: 0px;
+            background-color: lightgray;
+            border-radius: 5px;
+        }
+
+        .doorbtn {
+            font-size: min(3vw, 3vh);
+        }
+
+        #signed-in {
+            font-size: min(2vw, 2vh);
+        }
+    </style>
+</head>
+
+<body>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <div id="g_id_onload" data-client_id="200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com"
+        data-callback="onGoogleSignIn">
+    </div>
+
+    <p class="page-title">Control Portón</p>
+    <div class="panel">
+        <div class="subpanel">
+            <p class="subpanel-title">Puerta grande</p>
+            <output class="status" id="status-0">...</output>
+            <button id="doorbtn-0" class="doorbtn" disabled onclick="openDoor(0)">...</button>
+        </div>
+        <div class="subpanel">
+            <p class="subpanel-title">Puerta chica</p>
+            <output class="status" id="status-1">...</output>
+            <button id="doorbtn-1" class="doorbtn" disabled onclick="openDoor(1)">...</button>
+        </div>
+    </div>
+    <div id="sign-in-button" class="g_id_signin" data-type="standard"></div>
+    <div id="signed-in" hidden>
+        Authenticated as <span id="signed-in-email"></span>
+    </div>
+
+
+    <!--script>
+            var password = prompt("Contraseña?")
+
+            var checking = false
+            function setChecking(c) {
+                checking = c
+                const txt = c ? "Obteniendo estado..." : "Ver estado puerta"
+                document.getElementById("check").innerText = txt
+            }
+            setChecking(false)
+
+            function chequear() {
+                if (checking) return
+                setChecking(true)
+                fetch("/status", {
+                    headers: {
+                        'Authorization': password,
+                    }
+                }).then(res => res.json())
+                .then(res => {
+                    const doors = res.doors.map(isOpen => isOpen ? "ABIERTA" : "Cerrada")
+                    alert("Puerta grande: "+doors[0]+"\\nPuerta chica: "+doors[1])
+                    setChecking(false)
+                })
+                .catch(err => {
+                    setChecking(false)
+                    console.error(err)
+                    alert("error chequeando estado: "+err)
+                })
+            }
+
+            function abrir() {
+                fetch("/open?door=1", {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': password,
+                    }
+                }).then(res => {
+                    alert("se abrio la puerta")
+                    console.log("se abrio la puerta")
+                }).catch(err => {
+                    console.error(err)
+                    alert("error abriendo puerta: "+err)
+                })
+            }
+        </script-->
+</body>
+
+</html>

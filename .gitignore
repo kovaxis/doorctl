@@ -1,2 +1,3 @@
-/web/conf.json
+/web/conf-esp32.json
+/web/conf-web.json
 __pycache__
