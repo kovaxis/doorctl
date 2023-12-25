@@ -6,6 +6,7 @@ if __name__ == "__main__":
     sys.exit()
 
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
 from websockets.exceptions import ConnectionClosedOK
@@ -18,7 +19,6 @@ from app.manager import Esp32Manager
 import logging
 
 log = logging.getLogger("main")
-log.setLevel(logging.INFO)
 
 
 
@@ -37,7 +37,9 @@ manager = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global manager
-    logging.basicConfig()
+    logging.basicConfig(
+        level=os.environ.get('LOGLEVEL', 'INFO').upper(),
+    )
     manager = Esp32Manager()
     try:
         yield
@@ -96,7 +98,7 @@ async def status(token: str, ws: WebSocket):
             async with manager.lock:
                 if not manager.running:
                     break
-                new_status = tuple(manager.status) if manager.connected else None
+                new_status = tuple(manager.status) if manager.status else None
                 log.debug("new_status: %s", new_status)
                 if new_status == cur_status:
                     await manager.lock.wait()

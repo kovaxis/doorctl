@@ -1,0 +1,8 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8888:80"
+    restart: unless-stopped
+    volumes:
+      - ".:/code"
