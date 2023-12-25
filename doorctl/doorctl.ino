@@ -24,7 +24,6 @@ const u8 STATUS_ERR = 0;
 const u8 STATUS_OK = 1;
 const u8 STATUS_REPLAY = 2;
 
-const int UDP_PORT = 5555;
 u8 msg_buffer[512];
 WiFiUDP udp;
 
@@ -342,10 +341,10 @@ void setup() {
 
     setupWifi();
 
-    udp.begin(UDP_PORT);
+    udp.begin(CONF.server_port);
 
     Serial.print("listening for udp messages on port ");
-    Serial.print(UDP_PORT);
+    Serial.print(CONF.server_port);
     Serial.println("...");
 
     while (true) {
@@ -409,7 +408,7 @@ void setup() {
         }
         if (expiration <= last_message) {
             const char *replay_msg = "message already received";
-            udp_reply(STATUS_REPLAY, (const u8*)replay_msg, strlen(replay_msg), expiration, now);
+            udp_reply(STATUS_REPLAY, (const u8 *)replay_msg, strlen(replay_msg), expiration, now);
             Serial.print("message is sequenced before previous message, at ");
             Serial.print(expiration);
             Serial.print(" while last message was at ");

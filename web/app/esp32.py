@@ -30,7 +30,7 @@ class Esp32:
 
     def __init__(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.connect((conf["localip"], 5555))
+        self.sock.connect((conf["localip"], conf['port']))
         self.retries = 5
         self.min_timeout = 0.2
         self.max_timeout = 2

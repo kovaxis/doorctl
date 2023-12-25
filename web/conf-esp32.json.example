@@ -1,0 +1,19 @@
+{
+    "ssid": "my-wifi-name",
+    "password": "my-wifi-password",
+    "localip": "192.168.0.134",
+    "gateway": "192.168.0.1",
+    "subnet": "255.255.255.0",
+    "port": 14979,
+    "auth": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "out1": 33,
+    "out2": 32,
+    "in1": 35,
+    "in2": 34,
+    "rep1": 4,
+    "rep2": 17,
+    "out_neg": true,
+    "in_neg": false,
+    "rep_neg": true,
+    "threshold": 500
+}

@@ -1,0 +1,5 @@
+{
+    "email_whitelist": [
+        "some-mail@example.org"
+    ]
+}
