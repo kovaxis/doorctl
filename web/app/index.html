@@ -4,7 +4,7 @@
 <head>
     <title>Control Portón</title>
     <script>
-        let googleToken = null
+        let authToken = null
 
         function setButtonStatus(doorId, status) {
             const enable = ({
@@ -59,7 +59,7 @@
                 wsUri = "ws:"
             }
             wsUri += "//" + loc.host
-            wsUri += loc.pathname + "status?token=" + googleToken
+            wsUri += loc.pathname + "status?token=" + authToken
             console.log("opening websocket connection to", wsUri)
             const ws = new WebSocket(wsUri)
 
@@ -98,15 +98,39 @@
             if (socketRetryTimeout > 10) socketRetryTimeout = 10
         }
 
-        function onGoogleSignIn(googleUser) {
+        async function onGoogleSignIn(googleUser) {
             console.log("google sign-in")
-            console.log("  id token:", googleUser.credential)
-            const token = decodeJwt(googleUser.credential)
-            console.log("  token payload:", token)
+            console.log("google id token:", googleUser.credential)
+            console.log("google token payload:", decodeJwt(googleUser.credential))
+            const token = await (await fetch(`/login?google_token=${googleUser.credential}`, {
+                method: 'post',
+            })).json()
+            await onSignIn(token)
+        }
+
+        async function onSignIn(token) {
+            console.log("sign-in token:", token)
+            console.log("token payload:", decodeJwt(token))
+            const res = await fetch('/check', {
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                }
+            })
+            if (res.status == 401) {
+                authToken = null
+                localStorage.removeItem('authToken')
+                return
+            }
+            const name = await res.json()
+            console.log("subject identifier:", name)
+            authToken = token
+            localStorage.setItem('authToken', authToken)
             document.getElementById("sign-in-button").hidden = true
-            document.getElementById("signed-in-email").innerText = token.email
+            document.getElementById("signed-in-email").innerText = name
             document.getElementById("signed-in").hidden = false
-            googleToken = googleUser.credential
+            if (decodeJwt(token).can_invite == null) {
+                document.getElementById("invite-button").hidden = true
+            }
             for (let i = 0; i < 2; i++) {
                 setButtonStatus(i, 'ready')
                 setDoorStatus(i, 'unknown')
@@ -120,7 +144,7 @@
             try {
                 response = await fetch(`/open?door=${doorId}`, {
                     headers: {
-                        'Authorization': 'Bearer ' + googleToken,
+                        'Authorization': 'Bearer ' + authToken,
                     }
                 })
             } catch (e) {
@@ -143,6 +167,38 @@
                 setButtonStatus(i, 'unauthorized')
                 setDoorStatus(i, 'unauthorized')
             }
+            const urlParams = new URLSearchParams(window.location.search)
+            let token = null
+            if (urlParams.has('token')) {
+                token = urlParams.get('token')
+            } else {
+                token = localStorage.getItem('authToken')
+            }
+            if (token != null) {
+                onSignIn(token)
+            } else {
+                document.getElementById('g_id_onload').hidden = false
+                document.getElementById('sign-in-button').hidden = false
+            }
+        }
+
+        async function doInvite() {
+            const res = await fetch("/invite", {
+                method: 'post',
+                headers: {
+                    'Authorization': 'Bearer ' + authToken,
+                },
+            })
+            const token = await res.json()
+            const url = `https://puerta.andri.cl/?token=${token}`
+
+            document.getElementById("invite-button").hidden = true
+            const show = document.getElementById("invite-show")
+            show.hidden = false
+            show.value = url
+            show.select()
+            show.setSelectionRange(0, 99999)
+            navigator.clipboard.writeText(show.value)
         }
 
         window.addEventListener('load', onLoad)
@@ -199,6 +255,12 @@
 
         #signed-in {
             font-size: min(2vw, 2vh);
+            text-align: center;
+        }
+
+        #invite-show {
+            overflow: auto;
+            width: 100%;
         }
     </style>
 </head>
@@ -206,7 +268,7 @@
 <body>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <div id="g_id_onload" data-client_id="200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com"
-        data-callback="onGoogleSignIn">
+        data-callback="onGoogleSignIn" hidden>
     </div>
 
     <p class="page-title">Control Portón</p>
@@ -222,9 +284,12 @@
             <button id="doorbtn-1" class="doorbtn" disabled onclick="openDoor(1)">...</button>
         </div>
     </div>
-    <div id="sign-in-button" class="g_id_signin" data-type="standard"></div>
+    <div id="sign-in-button" class="g_id_signin" data-type="standard" hidden></div>
     <div id="signed-in" hidden>
-        Authenticated as <span id="signed-in-email"></span>
+        Autenticado como <span id="signed-in-email"></span>
+        <br />
+        <a id="invite-button" href="javascript:void(0);" onclick="doInvite()">Invitar a alguien</a>
+        <input type="text" id="invite-show" hidden></output>
     </div>
 
 

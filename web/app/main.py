@@ -6,9 +6,11 @@ if __name__ == "__main__":
     sys.exit()
 
 from contextlib import asynccontextmanager
+import datetime
 import os
 from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
+import jwt
 from websockets.exceptions import ConnectionClosedOK
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -24,6 +26,9 @@ log = logging.getLogger("main")
 
 class WebConf(BaseModel):
     email_whitelist: set[str]
+    jwt_secret: bytes
+    google_expiration: float
+    invite_expiration: float
 
 
 with open("./conf-web.json", 'r') as file:
@@ -57,15 +62,54 @@ async def root():
     return HTMLResponse(index_html)
 
 
-def authorize(token: str) -> str:
+def authorize_google(google_token: str) -> str:
     try:
-        userdata = id_token.verify_oauth2_token(token, requests.Request(), CLIENT_ID)
+        userdata = id_token.verify_oauth2_token(google_token, requests.Request(), CLIENT_ID)
         email = userdata['email']
     except ValueError:
         raise HTTPException(status_code=401)
     if email not in conf.email_whitelist:
         raise HTTPException(status_code=403, detail="Not in whitelist")
     return email
+
+
+def authorize(token: str, need_invite: bool = False) -> str:
+    try:
+        payload = jwt.decode(token, conf.jwt_secret, algorithms=["HS256"])
+    except ValueError:
+        raise HTTPException(status_code=401)
+    
+    if need_invite and 'can_invite' not in payload:
+        raise HTTPException(status_code=403)
+    
+    return payload['sub']
+
+
+def grant_token(sub: str, exp_secs: float, can_invite: bool = False) -> str:
+    payload = {
+        'sub': sub,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=exp_secs),
+    }
+    if can_invite:
+        payload['can_invite'] = True
+    return jwt.encode(payload, key=conf.jwt_secret, algorithm="HS256")
+
+
+@app.get("/check")
+async def check(bearer: HTTPAuthorizationCredentials = Depends(HTTPBearer())) -> str:
+    return authorize(bearer.credentials)
+
+
+@app.post("/login")
+async def login(google_token: str) -> str:
+    email = authorize_google(google_token)
+    return grant_token(email, conf.google_expiration, can_invite=True)
+
+
+@app.post("/invite")
+async def invite(bearer: HTTPAuthorizationCredentials = Depends(HTTPBearer())) -> str:
+    subject = authorize(bearer.credentials, need_invite=True)
+    return grant_token(f"invitado de {subject}", exp_secs=conf.invite_expiration)
 
 
 @app.get("/open")
@@ -112,27 +156,3 @@ async def status(token: str, ws: WebSocket):
     finally:
         async with manager.lock:
             manager.need_status -= 1
-
-
-
-
-# @app.get("/status")
-# async def status(authorization: str = Header()):
-#     await authorize(authorization)
-# 
-#     levels = do_request('status', lambda conn: conn.readstatus())
-#     return {
-#         'doors': list(map(lambda x: x >= esp32.conf['threshold'], levels))
-#     }
-# 
-# 
-# @app.post("/open")
-# async def opendoor(door: int = Query(...), authorization: str = Header()):
-#     await authorize(authorization)
-# 
-#     if door not in [0, 1]:
-#         raise HTTPException(status_code=400)
-# 
-#     do_request('open', lambda conn: conn.opendoor(door, 750))
-#     return {"message": "Door opened"}
-# 
