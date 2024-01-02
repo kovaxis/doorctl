@@ -2,7 +2,7 @@ services:
   web:
     build: .
     ports:
-      - "8888:80"
+      - "8800:80"
     restart: unless-stopped
     volumes:
       - ".:/code"
