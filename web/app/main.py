@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
 import jwt
 from websockets.exceptions import ConnectionClosedOK
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from google.oauth2 import id_token
@@ -193,3 +193,7 @@ async def status(token: str, ws: WebSocket):
             manager.need_status -= 1
             log.info("closing status connection (%s active)", manager.need_status)
         await ws.close()
+
+@app.get('/favicon.ico', include_in_schema=False)
+async def favicon():
+    return FileResponse("logo_doorctl.png")
