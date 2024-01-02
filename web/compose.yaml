@@ -6,3 +6,7 @@ services:
     restart: unless-stopped
     volumes:
       - ".:/code"
+  redis:
+    image: redis
+    ports:
+      - "6379"

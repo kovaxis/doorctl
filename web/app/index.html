@@ -108,27 +108,43 @@
             await onSignIn(token)
         }
 
+        function cancelSignIn() {
+            authToken = null
+            localStorage.removeItem('authToken')
+        }
+
         async function onSignIn(token) {
             console.log("sign-in token:", token)
-            console.log("token payload:", decodeJwt(token))
             const res = await fetch('/check', {
                 headers: {
                     'Authorization': 'Bearer ' + token,
                 }
             })
-            if (res.status == 401) {
-                authToken = null
-                localStorage.removeItem('authToken')
+            if (res.status < 200 || res.status >= 300) {
+                cancelSignIn()
+                console.log("deleting invalid/expired token")
+                if (token.substring(0, 1) == 'u') {
+                    alert("Esta invitación ya expiró.")
+                }
                 return
             }
-            const name = await res.json()
-            console.log("subject identifier:", name)
+            const payload = await res.json()
+            console.log("token payload:", payload)
+            console.log("subject identifier:", payload['sub'])
+            if (payload['one_use']) {
+                const confirmation = confirm("Esta invitación solo se puede usar una vez. ¿Estás segur@ que quieres usarla ahora?")
+                if (!confirmation) {
+                    cancelSignIn()
+                    console.log("user cancelled one-use login")
+                    return
+                }
+            }
             authToken = token
             localStorage.setItem('authToken', authToken)
-            document.getElementById("sign-in-button").hidden = true
-            document.getElementById("signed-in-email").innerText = name
+            document.getElementById("google-sign-in-button").hidden = true
+            document.getElementById("signed-in-email").innerText = payload['sub']
             document.getElementById("signed-in").hidden = false
-            if (decodeJwt(token).can_invite == null) {
+            if (payload['can_invite'] == null) {
                 document.getElementById("invite-button").hidden = true
             }
             for (let i = 0; i < 2; i++) {
@@ -136,6 +152,7 @@
                 setDoorStatus(i, 'unknown')
             }
             openStatusConnection()
+            return true
         }
 
         async function openDoor(doorId) {
@@ -154,15 +171,23 @@
                 console.log("door opened")
                 console.log(await response.json())
             } else {
+                let authProblem = false
                 if (response != null) {
                     console.error("open-door request failed:", response.status, response.statusText)
+                    if (response.status == 401 || response.status == 403) {
+                        authProblem = true
+                    }
                 }
-                alert("No se pudo abrir la puerta, intente de nuevo")
+                if (authProblem) {
+                    alert("Su sesión ha expirado")
+                } else {
+                    alert("No se pudo abrir la puerta, intente de nuevo")
+                }
             }
             setButtonStatus(doorId, 'ready')
         }
 
-        function onLoad() {
+        async function onLoad() {
             for (let i = 0; i < 2; i++) {
                 setButtonStatus(i, 'unauthorized')
                 setDoorStatus(i, 'unauthorized')
@@ -171,15 +196,26 @@
             let token = null
             if (urlParams.has('token')) {
                 token = urlParams.get('token')
+                window.history.replaceState({}, document.title, '/')
             } else {
                 token = localStorage.getItem('authToken')
             }
             if (token != null) {
-                onSignIn(token)
-            } else {
-                document.getElementById('g_id_onload').hidden = false
-                document.getElementById('sign-in-button').hidden = false
+                if (await onSignIn(token)) {
+                    return
+                }
             }
+            // document.getElementById('g_id_onload').hidden = false
+            google.accounts.id.initialize({
+                client_id: "200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com",
+                callback: onGoogleSignIn,
+            })
+            google.accounts.id.prompt()
+            google.accounts.id.renderButton(document.getElementById('google-sign-in-button'), {
+                type: 'standard',
+                size: 'large',
+            })
+            document.getElementById('google-sign-in-button').hidden = false
         }
 
         async function doInvite() {
@@ -192,7 +228,7 @@
             const token = await res.json()
             const url = `https://puerta.andri.cl/?token=${token}`
 
-            document.getElementById("invite-button").hidden = true
+            // document.getElementById("invite-button").hidden = true
             const show = document.getElementById("invite-show")
             show.hidden = false
             show.value = url
@@ -267,9 +303,9 @@
 
 <body>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <div id="g_id_onload" data-client_id="200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com"
+    <!--div id="g_id_onload" data-client_id="200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com"
         data-callback="onGoogleSignIn" hidden>
-    </div>
+    </div-->
 
     <p class="page-title">Control Portón</p>
     <div class="panel">
@@ -284,61 +320,13 @@
             <button id="doorbtn-1" class="doorbtn" disabled onclick="openDoor(1)">...</button>
         </div>
     </div>
-    <div id="sign-in-button" class="g_id_signin" data-type="standard" hidden></div>
+    <div id="google-sign-in-button" hidden></div>
     <div id="signed-in" hidden>
         Autenticado como <span id="signed-in-email"></span>
         <br />
         <a id="invite-button" href="javascript:void(0);" onclick="doInvite()">Invitar a alguien</a>
         <input type="text" id="invite-show" hidden></output>
     </div>
-
-
-    <!--script>
-            var password = prompt("Contraseña?")
-
-            var checking = false
-            function setChecking(c) {
-                checking = c
-                const txt = c ? "Obteniendo estado..." : "Ver estado puerta"
-                document.getElementById("check").innerText = txt
-            }
-            setChecking(false)
-
-            function chequear() {
-                if (checking) return
-                setChecking(true)
-                fetch("/status", {
-                    headers: {
-                        'Authorization': password,
-                    }
-                }).then(res => res.json())
-                .then(res => {
-                    const doors = res.doors.map(isOpen => isOpen ? "ABIERTA" : "Cerrada")
-                    alert("Puerta grande: "+doors[0]+"\\nPuerta chica: "+doors[1])
-                    setChecking(false)
-                })
-                .catch(err => {
-                    setChecking(false)
-                    console.error(err)
-                    alert("error chequeando estado: "+err)
-                })
-            }
-
-            function abrir() {
-                fetch("/open?door=1", {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': password,
-                    }
-                }).then(res => {
-                    alert("se abrio la puerta")
-                    console.log("se abrio la puerta")
-                }).catch(err => {
-                    console.error(err)
-                    alert("error abriendo puerta: "+err)
-                })
-            }
-        </script-->
 </body>
 
 </html>

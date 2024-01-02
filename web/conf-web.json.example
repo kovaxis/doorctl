@@ -1,5 +1,9 @@
 {
     "email_whitelist": [
-        "some-mail@example.org"
-    ]
+        "some-mail@example.com"
+    ],
+    "jwt_secret": "some-big-secret",
+    "google_expiration": 1209600,
+    "invite_expiration": 86400,
+    "invite_span": 300
 }
