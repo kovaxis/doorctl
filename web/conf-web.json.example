@@ -5,5 +5,5 @@
     "jwt_secret": "some-big-secret",
     "google_expiration": 1209600,
     "invite_expiration": 86400,
-    "invite_span": 300
+    "invite_span": 120
 }
