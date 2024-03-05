@@ -14,7 +14,7 @@ from pathlib import Path
 import secrets
 import time
 from typing import Any
-from fastapi import Depends, FastAPI, HTTPException, WebSocket
+from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket
 import jwt
 from websockets.exceptions import ConnectionClosedOK
 from fastapi.responses import FileResponse, HTMLResponse
@@ -41,6 +41,8 @@ class WebConf(BaseModel):
 with open("./conf-web.json", 'r') as file:
     conf = WebConf.model_validate_json(file.read())
 index_html = Path(__file__).with_name("index.html").read_text()
+service_worker_js = Path(__file__).with_name("service-worker.js").read_bytes()
+favicon_png = Path("./logo_doorctl.png").read_bytes()
 
 
 red: redis.Redis = None
@@ -72,6 +74,16 @@ CLIENT_ID = "200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleuserconten
 @app.get("/")
 async def root():
     return HTMLResponse(index_html)
+
+
+@app.get('/service-worker.js')
+async def service_worker():
+    return Response(content=service_worker_js, media_type="text/javascript")
+
+
+@app.get('/favicon.ico', include_in_schema=False)
+async def favicon():
+    return Response(content=favicon_png, media_type="image/png")
 
 
 async def authorize_google(google_token: str) -> str:
@@ -193,7 +205,3 @@ async def status(token: str, ws: WebSocket):
             manager.need_status -= 1
             log.info("closing status connection (%s active)", manager.need_status)
         await ws.close()
-
-@app.get('/favicon.ico', include_in_schema=False)
-async def favicon():
-    return FileResponse("logo_doorctl.png")

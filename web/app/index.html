@@ -237,7 +237,22 @@
             navigator.clipboard.writeText(show.value)
         }
 
+        async function registerServiceWorker() {
+            if (!("serviceWorker" in navigator)) return
+            const result = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" })
+            if (result.installing) {
+                console.log("installing service worker")
+            } else if (result.waiting) {
+                console.log("service worker installed and waiting for reload")
+            } else if (result.active) {
+                console.log("service worker active")
+            } else {
+                console.log("unknown service worker status")
+            }
+        }
+
         window.addEventListener('load', onLoad)
+        registerServiceWorker()
     </script>
     <style>
         body {
@@ -303,9 +318,6 @@
 
 <body>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!--div id="g_id_onload" data-client_id="200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com"
-        data-callback="onGoogleSignIn" hidden>
-    </div-->
 
     <p class="page-title">Control Portón</p>
     <div class="panel">
