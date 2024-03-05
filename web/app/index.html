@@ -230,17 +230,26 @@
             for (let i = 0; i < 2; i++) {
                 setButtonStatus(i, 'unauthorized')
             }
-            // document.getElementById('g_id_onload').hidden = false
-            google.accounts.id.initialize({
-                client_id: "200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com",
-                callback: onGoogleSignIn,
+
+            // Now, start loading login button
+            const gscript = document.createElement("script")
+            gscript.async = true
+            gscript.defer = true
+            gscript.addEventListener("load", () => {
+                // document.getElementById('g_id_onload').hidden = false
+                google.accounts.id.initialize({
+                    client_id: "200671129298-58096itq8l7g8uskluhqbte5asl0dbv2.apps.googleusercontent.com",
+                    callback: onGoogleSignIn,
+                })
+                google.accounts.id.prompt()
+                google.accounts.id.renderButton(document.getElementById('google-sign-in-button'), {
+                    type: 'standard',
+                    size: 'large',
+                })
+                document.getElementById('google-sign-in-button').hidden = false
             })
-            google.accounts.id.prompt()
-            google.accounts.id.renderButton(document.getElementById('google-sign-in-button'), {
-                type: 'standard',
-                size: 'large',
-            })
-            document.getElementById('google-sign-in-button').hidden = false
+            gscript.src = "https://accounts.google.com/gsi/client"
+            document.body.appendChild(gscript)
         }
 
         async function doInvite() {
@@ -342,8 +351,6 @@
 </head>
 
 <body>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-
     <p class="page-title">Control Portón</p>
     <div class="panel">
         <div class="subpanel">
