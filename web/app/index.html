@@ -2,6 +2,7 @@
 <html>
 
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Control Portón</title>
     <script>
         let authToken = null
@@ -307,11 +308,11 @@
             border-radius: 1em;
             margin-top: 2em;
             margin-bottom: 2em;
-            padding: 2em;
+            padding: min(5vw, 5vh);
 
             display: flex;
             flex-direction: row;
-            gap: 4em;
+            gap: min(10vw, 10vh);
         }
 
         .subpanel {
@@ -330,12 +331,46 @@
         .status {
             font-size: min(3vw, 3vh);
             margin: 0px;
+            padding: 4px 0px;
             background-color: lightgray;
             border-radius: 5px;
         }
 
         .doorbtn {
             font-size: min(3vw, 3vh);
+            background-color: rgb(135, 206, 250);
+            border: 1px solid rgb(93, 141, 171);
+            color: black;
+            padding: 8px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            border-radius: 1em;
+        }
+
+        @media (hover: none) {
+            .doorbtn {
+                padding: 2.5em 8px;
+            }
+        }
+
+        @media (hover: hover) {
+            .doorbtn:hover {
+                background-color: rgb(113, 178, 219);
+                border: 1px solid rgb(73, 114, 139);
+            }
+        }
+
+        .doorbtn:active {
+            background-color: rgb(86, 139, 173);
+            border: 1px solid rgb(46, 73, 90);
+        }
+
+        .doorbtn:disabled,
+        .doorbtn[disabled] {
+            background-color: #e8e8e8;
+            border: 1px solid #c8c8c8;
+            color: gray;
         }
 
         #signed-in {
