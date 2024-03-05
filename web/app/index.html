@@ -5,14 +5,17 @@
     <title>Control Portón</title>
     <script>
         let authToken = null
+        const pendingDoorOpens = []
 
         function setButtonStatus(doorId, status) {
             const enable = ({
+                'unknown': true,
                 'unauthorized': false,
                 'ready': true,
                 'active': false,
             })[status]
             const text = ({
+                'unknown': "Abrir",
                 'unauthorized': "Abrir",
                 'ready': "Abrir",
                 'active': "Abriendo...",
@@ -152,11 +155,30 @@
                 setDoorStatus(i, 'unknown')
             }
             openStatusConnection()
+            for (const obj of pendingDoorOpens.splice(0, pendingDoorOpens.length)) {
+                clearTimeout(obj.failCallback)
+                openDoor(obj.doorId)
+            }
             return true
+        }
+
+        function speculativeOpenDoorFailed(obj) {
+            pendingDoorOpens.splice(pendingDoorOpens.indexOf(obj), 1)
+            setButtonStatus(obj.doorId, 'unauthorized')
+            alert("No se pudo abrir la puerta, autentíquese e intente de nuevo")
         }
 
         async function openDoor(doorId) {
             setButtonStatus(doorId, 'active')
+            if (authToken == null) {
+                // This button is speculatively activated before we log in, so if it is clicked
+                // before log in the door-open action must be deferred until login
+                console.log("queueing door-open for after login")
+                const obj = { doorId: doorId }
+                obj.failCallback = setTimeout(() => speculativeOpenDoorFailed(obj), 1000),
+                    pendingDoorOpens.push(obj)
+                return
+            }
             let response = null
             try {
                 response = await fetch(`/open?door=${doorId}`, {
@@ -188,10 +210,6 @@
         }
 
         async function onLoad() {
-            for (let i = 0; i < 2; i++) {
-                setButtonStatus(i, 'unauthorized')
-                setDoorStatus(i, 'unauthorized')
-            }
             const urlParams = new URLSearchParams(window.location.search)
             let token = null
             if (urlParams.has('token')) {
@@ -200,10 +218,17 @@
             } else {
                 token = localStorage.getItem('authToken')
             }
+            for (let i = 0; i < 2; i++) {
+                setButtonStatus(i, token != null ? 'unknown' : 'unauthorized')
+                setDoorStatus(i, 'unauthorized')
+            }
             if (token != null) {
                 if (await onSignIn(token)) {
                     return
                 }
+            }
+            for (let i = 0; i < 2; i++) {
+                setButtonStatus(i, 'unauthorized')
             }
             // document.getElementById('g_id_onload').hidden = false
             google.accounts.id.initialize({
