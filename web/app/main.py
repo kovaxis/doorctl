@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket
 import jwt
 from websockets.exceptions import ConnectionClosedOK
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from google.oauth2 import id_token
