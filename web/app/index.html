@@ -177,8 +177,8 @@
                 const loginTimeout = 10
                 console.log("queueing door-open for after login")
                 const obj = { doorId: doorId }
-                obj.failCallback = setTimeout(() => speculativeOpenDoorFailed(obj), Math.round(loginTimeout * 1000)),
-                    pendingDoorOpens.push(obj)
+                obj.failCallback = setTimeout(() => speculativeOpenDoorFailed(obj), Math.round(loginTimeout * 1000))
+                pendingDoorOpens.push(obj)
                 return
             }
             let response = null
