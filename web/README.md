@@ -2,20 +2,16 @@
 
 ## Running
 
-Build docker image:
+Run the commands from the `/web` directory.
+
+Using Docker Compose (development, using `/web/compose.yaml`):
 
 ```sh
-docker build -t doorctl-web .
+docker compose up
 ```
 
-Run docker image:
+To deploy a persistent local server (using `/web/compose.yaml`):
 
 ```sh
-docker run --rm --name doorctl -p 8888:80 doorctl-web
-```
-
-Build and run (useful command for development):
-
-```sh
-docker build -t doorctl-web . && docker run --rm --name doorctl -p 8888:80 doorctl-web
+docker compose up --build -d
 ```
