@@ -1,12 +1,13 @@
 services:
-  web:
+  doorctl-web:
     build: .
     ports:
       - "8800:80"
     restart: unless-stopped
     volumes:
       - ".:/code"
-  redis:
+  doorctl-redis:
     image: redis
+    restart: unless-stopped
     ports:
       - "6379"
