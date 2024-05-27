@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(
         level=os.environ.get('LOGLEVEL', 'INFO').upper(),
     )
-    red = redis.Redis(host="redis")
+    red = redis.Redis(host="doorctl-redis")
     manager = Esp32Manager()
     try:
         yield
