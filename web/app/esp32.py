@@ -123,7 +123,7 @@ class Esp32:
             return None
         vals = [x[0] for x in struct.iter_unpack("<I", raw)]
         log.debug("pin levels: %s", vals)
-        vals = [v >= conf['threshold'] for v in vals]
+        vals = [v > 0 for v in vals]
 
         return vals
 

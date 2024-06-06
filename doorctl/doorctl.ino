@@ -14,6 +14,7 @@ const int CONF_ADDRESS = 0;
 const int OUT_PIN_COUNT = 2;
 const int IN_PIN_COUNT = 2;
 const int SECRET_SIZE = 32;
+const int IN_PIN_DEBOUNCE = 10;
 
 const u32 CMD_OPEN_DOOR = 1;
 const u32 CMD_READ_VALUES = 2;
@@ -30,6 +31,9 @@ WiFiUDP udp;
 blake3_hasher hasher;
 u64 timeline_id;
 u64 last_message;
+
+int analog_read_buf[IN_PIN_COUNT][IN_PIN_DEBOUNCE];
+int analog_read_buf_idx;
 
 IPAddress build_ip(u8 *ip) {
     return IPAddress(ip[0], ip[1], ip[2], ip[3]);
@@ -230,10 +234,13 @@ int get_in_analog(int i) {
     return analogRead(CONF.in_pins[i]);
 }
 
-int get_in_digital(int i) {
-    bool active = (get_in_analog(i) >= CONF.in_threshold);
-    if (CONF.negate_in) active = !active;
-    return active;
+bool get_in_digital(int i) {
+    for(int j = 0; j < IN_PIN_DEBOUNCE; j++) {
+        bool active = (analog_read_buf[i][j] >= CONF.in_threshold);
+        if (CONF.negate_in) active = !active;
+        if (active) return true;
+    }
+    return false;
 }
 
 void process_command(int packet_size, u8 *msg, u64 expiration, u64 now) {
@@ -269,7 +276,7 @@ void process_command(int packet_size, u8 *msg, u64 expiration, u64 now) {
         Serial.println("  reading out pin levels");
         u8 answer[sizeof(u32) * IN_PIN_COUNT];
         for (int i = 0; i < IN_PIN_COUNT; i++) {
-            u32 value = get_in_analog(i);
+            u32 value = get_in_digital(i);
             memcpy(&answer[i * sizeof(u32)], &value, sizeof(u32));
         }
         udp_reply(STATUS_OK, answer, sizeof(answer), expiration, now);
@@ -297,10 +304,20 @@ void process_command(int packet_size, u8 *msg, u64 expiration, u64 now) {
 }
 
 void do_idle_work() {
+    // Read pin and add it to the circular buffer
+    for (int i = 0; i < IN_PIN_COUNT; i++) {
+        analog_read_buf[i][analog_read_buf_idx] = get_in_analog(i);
+    }
+    analog_read_buf_idx += 1;
+    if (analog_read_buf_idx >= IN_PIN_DEBOUNCE) analog_read_buf_idx = 0;
+
+    // Update output LEDs
     for (int i = 0; i < IN_PIN_COUNT; i++) {
         set_rep(i, get_in_digital(i));
     }
-    delay(50);
+
+    // Wait a bit
+    delay(5);
 }
 
 void setup() {
