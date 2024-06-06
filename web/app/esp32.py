@@ -114,7 +114,7 @@ class Esp32:
         log.debug("success: %s", result)
         return result
 
-    async def readstatus(self) -> list[int] | None:
+    async def readstatus(self) -> list[bool] | None:
         log.debug("reading values")
 
         raw = await self.message(struct.pack("<I", 2))
