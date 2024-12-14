@@ -106,7 +106,10 @@ async def authorize(token: str, need_invite: bool = False, destructive: bool = T
             raise HTTPException(status_code=401)
         payload = json.loads(payload_str)
         if destructive:
-            await red.expire(f"usekey:{usekey}", datetime.timedelta(seconds=conf.invite_span), lt=True)
+            span_secs = conf.invite_span
+            if 'span' in payload:
+                span_secs = payload['span']
+            await red.expire(f"usekey:{usekey}", datetime.timedelta(seconds=span_secs), lt=True)
     else:
         # JWT
         try:
@@ -120,10 +123,12 @@ async def authorize(token: str, need_invite: bool = False, destructive: bool = T
     return payload
 
 
-async def grant_token(sub: str, exp_secs: float, can_invite: bool = False, one_use: bool = False) -> str:
+async def grant_token(sub: str, exp_secs: float, span_secs: float | None = None, can_invite: bool = False, one_use: bool = False) -> str:
     payload = {
         'sub': sub,
     }
+    if span_secs:
+        payload['span'] = span_secs
     if can_invite:
         payload['can_invite'] = True
     if one_use:
@@ -148,9 +153,13 @@ async def login(google_token: str) -> str:
 
 
 @app.post("/invite")
-async def invite(bearer: HTTPAuthorizationCredentials = Depends(HTTPBearer())) -> str:
+async def invite(bearer: HTTPAuthorizationCredentials = Depends(HTTPBearer()), expiration_secs: float | None = None, span_secs: float | None = None) -> str:
     user = await authorize(bearer.credentials, need_invite=True)
-    return await grant_token(f"invitado de {user['sub']}", exp_secs=conf.invite_expiration, one_use=True)
+    if expiration_secs is None:
+        expiration_secs = conf.invite_expiration
+    if span_secs is None:
+        span_secs = conf.invite_span
+    return await grant_token(f"invitado de {user['sub']}", exp_secs=expiration_secs, span_secs=span_secs, one_use=True)
 
 
 @app.get("/open")
